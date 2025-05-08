@@ -3,7 +3,6 @@ import threading
 import json
 import time
 
-
 HOST = '127.0.0.1'
 PORT = 5555
 
@@ -11,6 +10,7 @@ clients = []  # List of connected clients
 ready_status = {}  # Tracks whether each player is ready
 lock = threading.Lock()  # Thread safety for shared data
 game_in_progress = False
+
 
 def broadcast(message, sender_conn=None):
     with lock:
@@ -21,6 +21,7 @@ def broadcast(message, sender_conn=None):
                     conn.send(json.dumps(message).encode())
                 except:
                     pass
+
 
 def handle_client(conn, addr):
     global clients, ready_status, game_in_progress
@@ -41,7 +42,7 @@ def handle_client(conn, addr):
             return
 
         with lock:
-            clients.append({'conn': conn, 'addr': addr, 'username': username})
+            clients.append({'conn': conn, 'addr': addr, 'username': username, 'next_piece': None, 'hold_piece': None})
         update_lobby()
 
         while True:
@@ -78,8 +79,14 @@ def handle_client(conn, addr):
                 broadcast({'type': 'board', 'board': msg['board']}, sender_conn=conn)
 
             elif msg['type'] == 'next_piece':
-
                 with lock:
+                    # Update this client's next piece
+                    for client in clients:
+                        if client['conn'] == conn:
+                            client['next_piece'] = msg['piece']
+                            break
+
+                    # Find opponent and send update
                     opponent = next((c for c in clients if c['conn'] != conn), None)
                     if opponent:
                         try:
@@ -91,8 +98,14 @@ def handle_client(conn, addr):
                             pass
 
             elif msg['type'] == 'hold_piece':
-                # Broadcast the player's hold piece to opponent
                 with lock:
+                    # Update this client's hold piece
+                    for client in clients:
+                        if client['conn'] == conn:
+                            client['hold_piece'] = msg['piece']
+                            break
+
+                    # Find opponent and send update
                     opponent = next((c for c in clients if c['conn'] != conn), None)
                     if opponent:
                         try:
@@ -102,6 +115,7 @@ def handle_client(conn, addr):
                             }).encode())
                         except:
                             pass
+
             elif msg['type'] == 'initial_pieces':
                 with lock:
                     # Update this client's piece information
@@ -182,6 +196,7 @@ def start_game_with_countdown():
     finally:
         game_in_progress = False
 
+
 def start_server():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((HOST, PORT))
@@ -190,6 +205,7 @@ def start_server():
     while True:
         conn, addr = server.accept()
         threading.Thread(target=handle_client, args=(conn, addr), daemon=True).start()
+
 
 if __name__ == "__main__":
     start_server()
